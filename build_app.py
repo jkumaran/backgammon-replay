@@ -284,7 +284,7 @@ html_content = f'''<!DOCTYPE html>
   <!-- Main Board Area & Log Split View -->
   <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
 
-    <!-- Backgammon Board & Controls (8 cols or 12 cols when log hidden) -->
+    <!-- Backgammon Board & Controls -->
     <div id="boardCol" class="lg:col-span-8 transition-all duration-300 space-y-4">
 
       <!-- Current Turn Highlight Banner -->
@@ -526,7 +526,7 @@ html_content = f'''<!DOCTYPE html>
       </div>
     </div>
 
-    <!-- Move Log & Transcript Sidebar (4 cols) -->
+    <!-- Move Log & Transcript Sidebar -->
     <div id="logCol" class="lg:col-span-4 bg-[#131d2e] border border-[#23354d] rounded-2xl p-4 shadow-xl flex flex-col h-[650px] lg:h-auto">
       <div class="flex items-center justify-between pb-3 border-b border-slate-800">
         <div class="flex items-center gap-2">
@@ -666,7 +666,6 @@ function playHitSound() {{
 }}
 
 // Game State Management
-// Total turns: 27. Move 0 is Initial Board before move 1.
 let currentTurnIndex = 1; // 1 to 27, 0 = start
 let currentSubmoveIndex = -1; // -1 means show full turn state, 0..k-1 means show specific submove
 let isPlaying = false;
@@ -674,25 +673,21 @@ let playTimer = null;
 let playSpeed = 1.0;
 let perspective = 'cameron'; // 'cameron' or 'george'
 let filterHitsOnly = false;
+let activeAnimId = null;
 
 // Helpers to get point (X, Y)
-// Point p is in Cameron's coords 1..24
 function getPointGeometry(p) {{
   let colIndex = 0;
   let isTop = (p >= 13);
   let isRight = (p <= 6 || p >= 19);
 
   if (p >= 1 && p <= 6) {{
-    // Bottom right: 6 near bar (left), 1 near right edge
     colIndex = 6 - p;
   }} else if (p >= 7 && p <= 12) {{
-    // Bottom left: 7 near bar (right), 12 near left edge
     colIndex = 12 - p;
   }} else if (p >= 13 && p <= 18) {{
-    // Top left: 13 near left edge, 18 near bar (right)
     colIndex = p - 13;
   }} else if (p >= 19 && p <= 24) {{
-    // Top right: 19 near bar (left), 24 near right edge
     colIndex = p - 19;
   }}
 
@@ -716,28 +711,24 @@ function getPointGeometry(p) {{
 // Get position for checker at index `k` on point `p`
 function getCheckerPosition(p, k, totalCount) {{
   if (p === 'bar_c') {{
-    // Cameron checker on bar (lower half)
     return {{
       x: CFG.barX,
       y: 420 + k * 32
     }};
   }}
   if (p === 'bar_g') {{
-    // George checker on bar (upper half)
     return {{
       x: CFG.barX,
       y: 240 - k * 32
     }};
   }}
   if (p === 'off_c') {{
-    // Cameron borne off (bottom tray)
     return {{
       x: CFG.trayX,
       y: 560 - k * 18
     }};
   }}
   if (p === 'off_g') {{
-    // George borne off (top tray)
     return {{
       x: CFG.trayX,
       y: 100 + k * 18
@@ -770,7 +761,6 @@ function buildBoardSvg() {{
   for (let p = 1; p <= 24; p++) {{
     const g = getPointGeometry(p);
 
-    // Color alternate: Points 1, 3, 5 are dark; 2, 4, 6 are light; etc.
     const isDark = (p % 2 === 1);
     const fillUrl = g.isTop 
       ? (isDark ? 'url(#pointDarkTop)' : 'url(#pointLightTop)')
@@ -783,7 +773,6 @@ function buildBoardSvg() {{
     poly.setAttribute('id', `point-poly-${{p}}`);
     pointsGroup.appendChild(poly);
 
-    // Number Label
     const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
     text.setAttribute('x', g.centerX);
     text.setAttribute('y', g.isTop ? (g.baseY - 7) : (g.baseY + 18));
@@ -804,7 +793,6 @@ function updatePointLabels() {{
     if (perspective === 'cameron') {{
       label.textContent = p;
     }} else {{
-      // George perspective: George's point is 25 - p
       label.textContent = (25 - p);
     }}
   }}
@@ -814,6 +802,7 @@ function updatePointLabels() {{
 
 // Render current board checkers
 function renderCheckers(state, activeHighlightFrom = null, activeHighlightTo = null) {{
+  if (!state) return;
   const checkersGroup = document.getElementById('checkersGroup');
   const highlightsGroup = document.getElementById('highlightsGroup');
   checkersGroup.innerHTML = '';
@@ -836,8 +825,8 @@ function renderCheckers(state, activeHighlightFrom = null, activeHighlightTo = n
 
   // Render Checkers on Points 1..24
   for (let p = 1; p <= 24; p++) {{
-    const camCount = state.cameron_board[p] || 0;
-    const geoCount = state.george_board[p] || 0;
+    const camCount = (state.cameron_board && (state.cameron_board[p] ?? state.cameron_board[String(p)])) || 0;
+    const geoCount = (state.george_board && (state.george_board[p] ?? state.george_board[String(p)])) || 0;
     const count = Math.max(camCount, geoCount);
     const player = camCount > 0 ? 'cameron' : (geoCount > 0 ? 'george' : null);
 
@@ -854,7 +843,6 @@ function renderCheckers(state, activeHighlightFrom = null, activeHighlightTo = n
         circle.setAttribute('filter', 'url(#checkerShadow)');
         checkersGroup.appendChild(circle);
 
-        // Inner grooved concentric ring for 3D tactile look
         const ring = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
         ring.setAttribute('cx', pos.x);
         ring.setAttribute('cy', pos.y);
@@ -864,7 +852,6 @@ function renderCheckers(state, activeHighlightFrom = null, activeHighlightTo = n
         ring.setAttribute('stroke-width', '1.5');
         checkersGroup.appendChild(ring);
 
-        // If top checker and count >= 5, draw clear badge count number
         if (k === count - 1 && count >= 5) {{
           const txt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
           txt.setAttribute('x', pos.x);
@@ -882,9 +869,10 @@ function renderCheckers(state, activeHighlightFrom = null, activeHighlightTo = n
   }}
 
   // Render Cameron Checkers on Bar
-  if (state.cameron_bar > 0) {{
-    for (let k = 0; k < state.cameron_bar; k++) {{
-      const pos = getCheckerPosition('bar_c', k, state.cameron_bar);
+  const camBar = state.cameron_bar || 0;
+  if (camBar > 0) {{
+    for (let k = 0; k < camBar; k++) {{
+      const pos = getCheckerPosition('bar_c', k, camBar);
       const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
       circle.setAttribute('cx', pos.x);
       circle.setAttribute('cy', pos.y);
@@ -908,9 +896,10 @@ function renderCheckers(state, activeHighlightFrom = null, activeHighlightTo = n
   }}
 
   // Render George Checkers on Bar
-  if (state.george_bar > 0) {{
-    for (let k = 0; k < state.george_bar; k++) {{
-      const pos = getCheckerPosition('bar_g', k, state.george_bar);
+  const geoBar = state.george_bar || 0;
+  if (geoBar > 0) {{
+    for (let k = 0; k < geoBar; k++) {{
+      const pos = getCheckerPosition('bar_g', k, geoBar);
       const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
       circle.setAttribute('cx', pos.x);
       circle.setAttribute('cy', pos.y);
@@ -940,7 +929,6 @@ function createDiceElement(val, player) {{
   div.className = `dice-face ${{player === 'cameronwhale' ? 'cameron-dice' : 'george-dice'}}`;
   div.title = `Rolled ${{val}}`;
 
-  // Grid dots mapping (3x3 grid indices 0..8)
   const pipMap = {{
     1: [4],
     2: [0, 8],
@@ -968,7 +956,9 @@ function updateInfo(turnIdx, subIdx = -1) {{
   const turn = GAME_DATA.turns[turnIdx - 1];
   const state = (turnIdx === 0) 
     ? GAME_DATA.initial_state 
-    : (subIdx >= 0 ? turn.submoves[subIdx].state : turn.state_after);
+    : (subIdx >= 0 ? turn.submoves[subIdx].state_after : turn.state_after);
+
+  if (!state) return;
 
   // Update Move Count Label
   document.getElementById('moveNumLabel').textContent = 
@@ -983,26 +973,21 @@ function updateInfo(turnIdx, subIdx = -1) {{
     document.getElementById('cameronTurnBadge').classList.add('hidden');
     document.getElementById('georgeTurnBadge').classList.add('hidden');
   }} else {{
-    // Submove label
     const totalSubs = turn.submoves.length;
     if (subIdx >= 0) {{
       document.getElementById('submoveStepLabel').textContent = `Checker Step ${{subIdx + 1}} of ${{totalSubs}}`;
+      document.getElementById('moveNotation').textContent = turn.submoves[subIdx].text;
     }} else {{
       document.getElementById('submoveStepLabel').textContent = `${{totalSubs}} checker movements`;
+      document.getElementById('moveNotation').textContent = turn.desc;
     }}
 
-    // Notation
-    document.getElementById('moveNotation').textContent = 
-      subIdx >= 0 ? turn.submoves[subIdx].text : turn.desc;
-
-    // Dice
     const diceCont = document.getElementById('diceContainer');
     diceCont.innerHTML = '';
     turn.dice.forEach(d => {{
       diceCont.appendChild(createDiceElement(d, turn.player));
     }});
 
-    // Badges
     const badgeCont = document.getElementById('badgeContainer');
     let bHtml = '';
     if (turn.is_double) {{
@@ -1015,7 +1000,6 @@ function updateInfo(turnIdx, subIdx = -1) {{
 
     document.getElementById('moveTimestamp').textContent = turn.time;
 
-    // Active Turn Glow on Player Cards
     if (turn.player === 'cameronwhale') {{
       document.getElementById('cameronCard').classList.add('border-amber-500', 'ring-2', 'ring-amber-400/50');
       document.getElementById('georgeCard').classList.remove('border-emerald-500', 'ring-2', 'ring-emerald-400/50');
@@ -1037,7 +1021,6 @@ function updateInfo(turnIdx, subIdx = -1) {{
   document.getElementById('cameronOffCount').textContent = state.cameron_off;
   document.getElementById('georgeOffCount').textContent = state.george_off;
 
-  // Pip Difference calculations
   const diff = state.cameron_pips - state.george_pips;
   const camDiffEl = document.getElementById('cameronPipDiff');
   const geoDiffEl = document.getElementById('georgePipDiff');
@@ -1059,31 +1042,25 @@ function updateInfo(turnIdx, subIdx = -1) {{
     geoDiffEl.className = 'text-xs font-semibold text-slate-400';
   }}
 
-  // Pip Bar ratio
   const totalPips = state.cameron_pips + state.george_pips;
   if (totalPips > 0) {{
-    // Lower pips = further advanced (better)
     const camPct = Math.round((1 - (state.cameron_pips / 334)) * 100);
     const geoPct = Math.round((1 - (state.george_pips / 334)) * 100);
     document.getElementById('cameronPipBar').style.width = `${{camPct}}%`;
     document.getElementById('georgePipBar').style.width = `${{geoPct}}%`;
   }}
 
-  // Update Slider Value
   document.getElementById('moveSlider').value = turnIdx;
   document.getElementById('sliderPositionLabel').textContent = `Move ${{turnIdx}} / ${{GAME_DATA.turns.length}}`;
 
-  // Update Prev/Next button states
   document.getElementById('prevTurnBtn').disabled = (turnIdx === 0 && subIdx <= 0);
   document.getElementById('firstBtn').disabled = (turnIdx === 0 && subIdx <= 0);
   document.getElementById('nextTurnBtn').disabled = (turnIdx === GAME_DATA.turns.length && subIdx === -1);
   document.getElementById('lastBtn').disabled = (turnIdx === GAME_DATA.turns.length && subIdx === -1);
 
-  // Update transcript active row
   highlightTranscriptRow(turnIdx);
 }}
 
-// Highlight row in transcript
 function highlightTranscriptRow(idx) {{
   document.querySelectorAll('.transcript-row').forEach(row => {{
     row.classList.remove('bg-sky-950/60', 'border-sky-500/80', 'ring-1', 'ring-sky-500');
@@ -1099,28 +1076,47 @@ function highlightTranscriptRow(idx) {{
 
 // Animate a Single Submove
 function animateSubmove(submove, onComplete) {{
+  if (activeAnimId) {{
+    cancelAnimationFrame(activeAnimId);
+    activeAnimId = null;
+  }}
+
   const animLayer = document.getElementById('animLayer');
   animLayer.innerHTML = '';
 
   const stateBefore = submove.state_before;
+  const stateAfter = submove.state_after;
   const fromAbs = submove.from_abs;
   const toAbs = submove.to_abs;
-  const player = (submove.text.includes('cameron') || GAME_DATA.turns[currentTurnIndex - 1].player === 'cameronwhale') ? 'cameron' : 'george';
+  const turnObj = GAME_DATA.turns[currentTurnIndex - 1];
+  const player = (turnObj && turnObj.player === 'cameronwhale') ? 'cameron' : 'george';
 
-  // Render board in state before movement
-  renderCheckers(stateBefore, fromAbs, toAbs);
+  // Lift moving checker from origin during flight
+  const boardDuringFlight = JSON.parse(JSON.stringify(stateBefore));
+  if (typeof fromAbs === 'number') {{
+    const k = String(fromAbs);
+    if (player === 'cameron' && boardDuringFlight.cameron_board[k] > 0) boardDuringFlight.cameron_board[k]--;
+    else if (player === 'george' && boardDuringFlight.george_board[k] > 0) boardDuringFlight.george_board[k]--;
+  }} else if (fromAbs === 'bar_c' && boardDuringFlight.cameron_bar > 0) {{
+    boardDuringFlight.cameron_bar--;
+  }} else if (fromAbs === 'bar_g' && boardDuringFlight.george_bar > 0) {{
+    boardDuringFlight.george_bar--;
+  }}
+  renderCheckers(boardDuringFlight, fromAbs, toAbs);
 
   // Source Coordinates
   let countAtFrom = 1;
   if (typeof fromAbs === 'number') {{
-    countAtFrom = (player === 'cameron' ? stateBefore.cameron_board[fromAbs] : stateBefore.george_board[fromAbs]) || 1;
+    const k = String(fromAbs);
+    countAtFrom = (player === 'cameron' ? stateBefore.cameron_board[k] : stateBefore.george_board[k]) || 1;
   }}
   const startPos = getCheckerPosition(fromAbs, countAtFrom - 1, countAtFrom);
 
   // Target Coordinates
   let countAtTo = 0;
   if (typeof toAbs === 'number') {{
-    countAtTo = (player === 'cameron' ? stateBefore.cameron_board[toAbs] : stateBefore.george_board[toAbs]) || 0;
+    const k = String(toAbs);
+    countAtTo = (player === 'cameron' ? stateBefore.cameron_board[k] : stateBefore.george_board[k]) || 0;
   }}
   const endPos = getCheckerPosition(toAbs, countAtTo, countAtTo + 1);
 
@@ -1145,20 +1141,18 @@ function animateSubmove(submove, onComplete) {{
   ring.setAttribute('stroke-width', '1.5');
   animLayer.appendChild(ring);
 
-  const duration = Math.max(220, 480 / playSpeed);
+  const duration = Math.max(180, 420 / playSpeed);
   const startTime = performance.now();
 
   function stepAnim(now) {{
     const elapsed = now - startTime;
     const progress = Math.min(1, elapsed / duration);
-    // Smooth easeInOutCubic
     const ease = progress < 0.5 
       ? 4 * progress * progress * progress 
       : 1 - Math.pow(-2 * progress + 2, 3) / 2;
 
     const curX = startPos.x + (endPos.x - startPos.x) * ease;
-    // Arch effect for 3D flight
-    const archY = Math.sin(progress * Math.PI) * -60;
+    const archY = Math.sin(progress * Math.PI) * -65;
     const curY = startPos.y + (endPos.y - startPos.y) * ease + archY;
 
     flyingCircle.setAttribute('cx', curX);
@@ -1167,13 +1161,12 @@ function animateSubmove(submove, onComplete) {{
     ring.setAttribute('cy', curY);
 
     if (progress < 1) {{
-      requestAnimationFrame(stepAnim);
+      activeAnimId = requestAnimationFrame(stepAnim);
     }} else {{
-      // Finished flying
+      activeAnimId = null;
       animLayer.innerHTML = '';
       playClack();
 
-      // If hit occurred, trigger hit sound & hit shockwave
       if (submove.hit) {{
         playHitSound();
         const hitShock = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
@@ -1187,20 +1180,28 @@ function animateSubmove(submove, onComplete) {{
         animLayer.appendChild(hitShock);
 
         setTimeout(() => {{
-          animLayer.innerHTML = '';
-        }}, 350);
+          if (!activeAnimId) animLayer.innerHTML = '';
+        }}, 300);
       }}
 
-      renderCheckers(submove.state, fromAbs, toAbs);
+      // Render the true resulting state
+      renderCheckers(stateAfter, fromAbs, toAbs);
       if (onComplete) onComplete();
     }}
   }}
 
-  requestAnimationFrame(stepAnim);
+  activeAnimId = requestAnimationFrame(stepAnim);
 }}
 
 // Jump to a specific Turn
-function goToTurn(turnIdx, animate = false) {{
+function goToTurn(turnIdx, animate = false, onComplete = null) {{
+  if (activeAnimId) {{
+    cancelAnimationFrame(activeAnimId);
+    activeAnimId = null;
+  }}
+  const animLayer = document.getElementById('animLayer');
+  if (animLayer) animLayer.innerHTML = '';
+
   if (turnIdx < 0) turnIdx = 0;
   if (turnIdx > GAME_DATA.turns.length) turnIdx = GAME_DATA.turns.length;
 
@@ -1210,6 +1211,7 @@ function goToTurn(turnIdx, animate = false) {{
   if (turnIdx === 0) {{
     renderCheckers(GAME_DATA.initial_state);
     updateInfo(0);
+    if (onComplete) onComplete();
     return;
   }}
 
@@ -1218,21 +1220,36 @@ function goToTurn(turnIdx, animate = false) {{
   if (!animate) {{
     renderCheckers(turn.state_after);
     updateInfo(turnIdx);
+    if (onComplete) onComplete();
   }} else {{
     // Animate turn's submoves in sequence
     playDiceRoll();
     let subI = 0;
     function nextSub() {{
+      if (!isPlaying && onComplete) {{
+        // If playback was stopped during turn
+        renderCheckers(turn.state_after);
+        updateInfo(turnIdx);
+        return;
+      }}
+
       if (subI < turn.submoves.length) {{
         currentSubmoveIndex = subI;
         updateInfo(turnIdx, subI);
         animateSubmove(turn.submoves[subI], () => {{
           subI++;
-          setTimeout(nextSub, 200 / playSpeed);
+          if (subI < turn.submoves.length) {{
+            setTimeout(nextSub, 180 / playSpeed);
+          }} else {{
+            currentSubmoveIndex = -1;
+            updateInfo(turnIdx);
+            if (onComplete) onComplete();
+          }}
         }});
       }} else {{
         currentSubmoveIndex = -1;
         updateInfo(turnIdx);
+        if (onComplete) onComplete();
       }}
     }}
     nextSub();
@@ -1241,8 +1258,16 @@ function goToTurn(turnIdx, animate = false) {{
 
 // Step forward 1 submove
 function stepForward() {{
+  stopPlay();
+
   if (currentTurnIndex === 0) {{
-    goToTurn(1, false);
+    currentTurnIndex = 1;
+    currentSubmoveIndex = 0;
+    const turn = GAME_DATA.turns[0];
+    playDiceRoll();
+    animateSubmove(turn.submoves[0], () => {{
+      updateInfo(1, 0);
+    }});
     return;
   }}
 
@@ -1253,11 +1278,11 @@ function stepForward() {{
       updateInfo(currentTurnIndex, currentSubmoveIndex);
     }});
   }} else {{
-    // Advance to next turn
     if (currentTurnIndex < GAME_DATA.turns.length) {{
       currentTurnIndex++;
       currentSubmoveIndex = 0;
       const nextTurn = GAME_DATA.turns[currentTurnIndex - 1];
+      playDiceRoll();
       animateSubmove(nextTurn.submoves[0], () => {{
         updateInfo(currentTurnIndex, 0);
       }});
@@ -1267,59 +1292,77 @@ function stepForward() {{
 
 // Step backward 1 submove
 function stepBackward() {{
+  stopPlay();
+
   if (currentTurnIndex === 0) return;
+
+  const turn = GAME_DATA.turns[currentTurnIndex - 1];
 
   if (currentSubmoveIndex > 0) {{
     currentSubmoveIndex--;
-    const turn = GAME_DATA.turns[currentTurnIndex - 1];
-    renderCheckers(turn.submoves[currentSubmoveIndex].state);
+    renderCheckers(turn.submoves[currentSubmoveIndex].state_after);
     updateInfo(currentTurnIndex, currentSubmoveIndex);
   }} else if (currentSubmoveIndex === 0) {{
-    // Back to before this turn's first submove
-    const turn = GAME_DATA.turns[currentTurnIndex - 1];
     renderCheckers(turn.submoves[0].state_before);
     currentSubmoveIndex = -1;
     currentTurnIndex--;
     updateInfo(currentTurnIndex);
   }} else {{
-    // Move to previous turn
-    if (currentTurnIndex > 1) {{
-      currentTurnIndex--;
-      const prevTurn = GAME_DATA.turns[currentTurnIndex - 1];
-      currentSubmoveIndex = prevTurn.submoves.length - 1;
-      renderCheckers(prevTurn.submoves[currentSubmoveIndex].state);
+    // currentSubmoveIndex was -1
+    if (turn.submoves.length > 1) {{
+      currentSubmoveIndex = turn.submoves.length - 2;
+      renderCheckers(turn.submoves[currentSubmoveIndex].state_after);
       updateInfo(currentTurnIndex, currentSubmoveIndex);
     }} else {{
-      goToTurn(0);
+      currentTurnIndex--;
+      if (currentTurnIndex === 0) {{
+        goToTurn(0, false);
+      }} else {{
+        const prevTurn = GAME_DATA.turns[currentTurnIndex - 1];
+        renderCheckers(prevTurn.state_after);
+        updateInfo(currentTurnIndex);
+      }}
     }}
   }}
 }}
 
-// Auto-Play Slideshow
+// Auto-Play Continuous Slideshow
 function startPlay() {{
+  if (isPlaying) return;
   isPlaying = true;
+
   document.getElementById('playText').textContent = 'Pause';
   document.getElementById('playIcon').textContent = '⏸';
   document.getElementById('playBtn').classList.replace('from-sky-500', 'from-amber-500');
   document.getElementById('playBtn').classList.replace('to-blue-600', 'to-orange-600');
 
-  function loop() {{
+  // If already at final move, rewind to start
+  if (currentTurnIndex >= GAME_DATA.turns.length) {{
+    goToTurn(0, false);
+  }}
+
+  function advanceNextTurn() {{
     if (!isPlaying) return;
     if (currentTurnIndex < GAME_DATA.turns.length) {{
-      goToTurn(currentTurnIndex + 1, true);
-      const delay = (1600 / playSpeed) + (GAME_DATA.turns[currentTurnIndex - 1].submoves.length * (500 / playSpeed));
-      playTimer = setTimeout(loop, delay);
+      goToTurn(currentTurnIndex + 1, true, () => {{
+        if (!isPlaying) return;
+        const pauseBetweenTurns = Math.max(450, 1000 / playSpeed);
+        playTimer = setTimeout(advanceNextTurn, pauseBetweenTurns);
+      }});
     }} else {{
       stopPlay();
     }}
   }}
-  loop();
+
+  advanceNextTurn();
 }}
 
 function stopPlay() {{
   isPlaying = false;
-  if (playTimer) clearTimeout(playTimer);
-  playTimer = null;
+  if (playTimer) {{
+    clearTimeout(playTimer);
+    playTimer = null;
+  }}
   document.getElementById('playText').textContent = 'Play';
   document.getElementById('playIcon').textContent = '▶';
   document.getElementById('playBtn').classList.replace('from-amber-500', 'from-sky-500');
@@ -1339,7 +1382,10 @@ function buildTimelineMarkers() {{
       dot.style.left = `${{pct}}%`;
       dot.className = `absolute -top-1 w-2 h-2 -ml-1 rounded-full cursor-pointer pointer-events-auto ${{t.has_hit ? 'bg-red-500 ring-2 ring-red-400/40' : 'bg-purple-500 ring-2 ring-purple-400/40'}}`;
       dot.title = `Move ${{i+1}}: ${{t.is_double ? 'Double' : ''}} ${{t.has_hit ? 'Checker Hit!' : ''}}`;
-      dot.onclick = () => goToTurn(i + 1, false);
+      dot.onclick = () => {{
+        stopPlay();
+        goToTurn(i + 1, false);
+      }};
       container.appendChild(dot);
     }}
   }});
@@ -1404,12 +1450,10 @@ function initEvents() {{
   }};
 
   document.getElementById('nextStepBtn').onclick = () => {{
-    stopPlay();
     stepForward();
   }};
 
   document.getElementById('prevStepBtn').onclick = () => {{
-    stopPlay();
     stepBackward();
   }};
 
@@ -1499,15 +1543,19 @@ function initEvents() {{
       stepBackward();
     }} else if (e.code === 'ArrowDown') {{
       e.preventDefault();
+      stopPlay();
       goToTurn(currentTurnIndex + 1, false);
     }} else if (e.code === 'ArrowUp') {{
       e.preventDefault();
+      stopPlay();
       goToTurn(currentTurnIndex - 1, false);
     }} else if (e.code === 'Home') {{
       e.preventDefault();
+      stopPlay();
       goToTurn(0, false);
     }} else if (e.code === 'End') {{
       e.preventDefault();
+      stopPlay();
       goToTurn(GAME_DATA.turns.length, false);
     }} else if (e.key === 'm' || e.key === 'M') {{
       document.getElementById('soundToggleBtn').click();
@@ -1534,4 +1582,4 @@ window.addEventListener('DOMContentLoaded', () => {{
 with open('/Users/kumaran/Downloads/backgammon/index.html', 'w') as f:
     f.write(html_content)
 
-print('Successfully created /Users/kumaran/Downloads/backgammon/index.html!')
+print('Successfully rebuilt index.html!')
