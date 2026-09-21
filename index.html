@@ -1062,7 +1062,21 @@ function highlightTranscriptRow(idx) {
     const activeRow = document.getElementById(`row-move-${idx}`);
     if (activeRow) {
       activeRow.classList.add('bg-sky-950/60', 'border-sky-500/80', 'ring-1', 'ring-sky-500');
-      activeRow.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      
+      // When in play mode: completely ignore position of current step and keep window at the top
+      if (!isPlaying) {
+        const container = document.getElementById('movesListContainer');
+        if (container) {
+          const rowOffset = activeRow.offsetTop;
+          const containerH = container.clientHeight;
+          const rowH = activeRow.clientHeight;
+          // Scroll ONLY the internal container, never the browser window
+          container.scrollTo({
+            top: rowOffset - (containerH / 2) + (rowH / 2),
+            behavior: 'smooth'
+          });
+        }
+      }
     }
   }
 }
@@ -1323,6 +1337,9 @@ function stepBackward() {
 function startPlay() {
   if (isPlaying) return;
   isPlaying = true;
+
+  // Keep window at the top during play mode
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 
   document.getElementById('playText').textContent = 'Pause';
   document.getElementById('playIcon').textContent = '⏸';
