@@ -8,8 +8,9 @@ An interactive graphical Backgammon Match Replay and Animation viewer for **Tabl
 
 ## 🌟 Live Demo & Deployment
 
-- **Deploy on Render**: Click the **Deploy to Render** button above or link this repository on [Render Dashboard](https://dashboard.render.com). The repository includes a `render.yaml` Blueprint that automatically configures the static site with zero manual setup.
-- **GitHub Pages**: [https://jkumaran.github.io/backgammon-replay/](https://jkumaran.github.io/backgammon-replay/)
+- **Live on Render**: [https://backgammon-replay.onrender.com](https://backgammon-replay.onrender.com)
+- **Live on GitHub Pages**: [https://jkumaran.github.io/backgammon-replay/](https://jkumaran.github.io/backgammon-replay/)
+
 
 ---
 
